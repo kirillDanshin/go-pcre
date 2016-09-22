@@ -67,6 +67,8 @@ import (
 	"strconv"
 	"strings"
 	"unsafe"
+
+	"github.com/kirillDanshin/myutils"
 )
 
 // Flags for Compile and Match functions.
@@ -156,6 +158,19 @@ const (
 	ERROR_JIT_STACKLIMIT = C.PCRE_ERROR_JIT_STACKLIMIT
 )
 
+const (
+	dmpFmt           = "%s: %s\n"
+	parseFlagsRegexp = "^\\(\\?[a-zA-Z]+?\\)"
+)
+
+func dmpCStr(name string, v *C.char) string {
+	return fmt.Sprintf(dmpFmt, name, C.GoString(v))
+}
+
+func dmpCInt(name string, v *C.int) string {
+	return fmt.Sprintf(dmpFmt, name, int32(*v))
+}
+
 // This function returns information about libpcre configuration.
 // Function passed flag f to C.pcre_config() func, and convert returned
 // vaule to string type.
@@ -176,34 +191,85 @@ func Config(f int) (r string) {
 // This function returns string, which contains  all information
 // you can access by pcre_config() function
 func ConfigAll() (ret string) {
-	var i C.int
+	var (
+		i         C.int
+		jittarget *C.char
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_JIT, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("jit: %d\n", int32(i))
-	var jittarget *C.char
+	ret = dmpCInt("jit", &i)
+
 	C.pcre_config(C.PCRE_CONFIG_JITTARGET, unsafe.Pointer(&jittarget))
-	ret += fmt.Sprintf("jittarget: %s\n", C.GoString(jittarget))
+	ret = myutils.Concat(
+		ret,
+		dmpCStr("jittarget", jittarget),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_LINK_SIZE, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("link_size: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("link_size", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_MATCH_LIMIT, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("match_limit: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("match_limit", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_MATCH_LIMIT_RECURSION, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("match_limit_recursion: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("match_limit_recursion", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_NEWLINE, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("newline: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("newline", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_BSR, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("bsr: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("bsr", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_POSIX_MALLOC_THRESHOLD, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("posix_malloc_threshold: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("posix_malloc_threshold", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_STACKRECURSE, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("stackrecurse: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("stackrecurse", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_UTF16, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("utf16: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("utf16", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_UTF32, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("utf32: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("utf32", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_UTF8, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("utf8: %d", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("utf8", &i),
+	)
+
 	C.pcre_config(C.PCRE_CONFIG_UNICODE_PROPERTIES, unsafe.Pointer(&i))
-	ret += fmt.Sprintf("unicode_properties: %d\n", int32(i))
+	ret = myutils.Concat(
+		ret,
+		dmpCInt("unicode_properties", &i),
+	)
 
 	return
 }
@@ -213,6 +279,7 @@ func ConfigAll() (ret string) {
 type Regexp struct {
 	ptr   []byte
 	extra []byte
+	flags int
 }
 
 // Number of bytes in the compiled pattern
@@ -237,7 +304,7 @@ func pcregroups(ptr *C.pcre) (count C.int) {
 // Supported symbols i=CASELESS; m=MULTILINE; s=DOTALL; U=UNGREEDY; J=DUPNAMES;
 // x=EXTENDED; X=EXTRA; D=DOLLAR_ENDONLY; u=UTF8|UCP;
 func ParseFlags(ptr string) (string, int) {
-	fReg := MustCompile("^\\(\\?[a-zA-Z]+?\\)", 0)
+	fReg := MustCompile(parseFlagsRegexp, 0)
 	flags := 0
 	for fStr := fReg.FindString(ptr, 0); fStr != ""; ptr = ptr[len(fStr):] {
 		fStr = fReg.FindString(ptr, 0)
@@ -299,6 +366,7 @@ func Compile(pattern string, flags int) (Regexp, error) {
 	var re Regexp
 	re.ptr = make([]byte, psize)
 	C.memcpy(unsafe.Pointer(&re.ptr[0]), unsafe.Pointer(ptr), psize)
+	re.flags = flags
 	return re, nil
 }
 
@@ -339,6 +407,7 @@ func CompileJIT(pattern string, flagsC, flagsS int) (Regexp, error) {
 	var re Regexp
 	re.ptr = make([]byte, psize)
 	C.memcpy(unsafe.Pointer(&re.ptr[0]), unsafe.Pointer(ptr), psize)
+	re.flags = flagsC
 	errS := re.study(flagsS)
 	if errS != nil {
 		return re, fmt.Errorf("study error: %s", errS)
@@ -393,8 +462,24 @@ func MustCompileParseJIT(pattern string, flags int) (re Regexp) {
 	return
 }
 
+// IsMultiline checks if regexp is multiline
+func (re *Regexp) IsMultiline() bool {
+	return re.flags&MULTILINE != 0
+}
+
+// IsCaseless checks if regexp is case insensetive
+func (re *Regexp) IsCaseless() bool {
+	return re.flags&CASELESS != 0
+}
+
 // Return the start and end of the first match.
 func (re *Regexp) FindAllIndex(bytes []byte, flags int) (r [][]int) {
+	if flags == 0 {
+		flags = re.flags
+	}
+	if flags == -1 {
+		flags = 0
+	}
 	m := re.Matcher(bytes, flags)
 	offset := 0
 	for m.Match(bytes[offset:], flags) {
@@ -407,6 +492,12 @@ func (re *Regexp) FindAllIndex(bytes []byte, flags int) (r [][]int) {
 // Return the start and end of the first match, or nil if no match.
 // loc[0] is the start and loc[1] is the end.
 func (re *Regexp) FindIndex(bytes []byte, flags int) []int {
+	if flags == 0 {
+		flags = re.flags
+	}
+	if flags == -1 {
+		flags = 0
+	}
 	m := re.Matcher(bytes, flags)
 	if m.Matches {
 		return []int{int(m.ovector[0]), int(m.ovector[1])}
@@ -417,6 +508,12 @@ func (re *Regexp) FindIndex(bytes []byte, flags int) []int {
 // Return the start and end of the first match, or nil if no match.
 // loc[0] is the start and loc[1] is the end.
 func (re *Regexp) FindString(s string, flags int) string {
+	if flags == 0 {
+		flags = re.flags
+	}
+	if flags == -1 {
+		flags = 0
+	}
 	m := re.Matcher([]byte(s), flags)
 	if m.Matches {
 		return s[int(m.ovector[0]):int(m.ovector[1])]
